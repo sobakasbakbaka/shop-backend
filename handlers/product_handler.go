@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -104,22 +105,33 @@ func (h *ProductHandler) DeleteProduct(c *gin.Context) {
 func (h *ProductHandler) UploadProductImage(c *gin.Context) {
 	id := c.Param("id")
 	var product models.Product
-
 	if err := h.DB.First(&product, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Продукт не найден"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Товар не найден"})
 		return
 	}
 
-	file, header, err := c.Request.FormFile("image")
+	fileHeader, err := c.FormFile("image")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Ошибка получения файла"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Файл не передан"})
+		return
+	}
+
+	contentType := fileHeader.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "image/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Можно загружать только изображения"})
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось открыть файл"})
 		return
 	}
 	defer file.Close()
 
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(os.Getenv("AWS_REGION")),
-		Endpoint: aws.String(os.Getenv("AWS_ENDPOINT")),
+		Region:           aws.String(os.Getenv("S3_REGION")),
+		Endpoint:         aws.String(os.Getenv("S3_ENDPOINT")),
 		S3ForcePathStyle: aws.Bool(true),
 		Credentials: credentials.NewStaticCredentials(
 			os.Getenv("S3_ACCESS_KEY"),
@@ -128,30 +140,28 @@ func (h *ProductHandler) UploadProductImage(c *gin.Context) {
 		),
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания сессии S3"})
+		log.Println("S3 init error:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка инициализации S3"})
 		return
 	}
 
 	s3Client := s3.New(sess)
-
-	key := fmt.Sprintf("products/%d/%s", product.ID, header.Filename)
+	key := fmt.Sprintf("products/%s/main.jpg", id)
 
 	_, err = s3Client.PutObject(&s3.PutObjectInput{
-		Bucket: aws.String(os.Getenv("S3_BUCKET")),
-		Key:    aws.String(key),
-		Body:   file,
-		ACL:    aws.String("public-read"),
-		ContentType: aws.String(header.Header.Get("Content-Type")),
+		Bucket:      aws.String(os.Getenv("S3_BUCKET")),
+		Key:         aws.String(key),
+		Body:        file,
+		ContentType: aws.String(contentType),
 	})
 	if err != nil {
 		log.Println("S3 error:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка загрузки в S3"})
-	return
-}
+		return
+	}
 
 	imageURL := fmt.Sprintf("%s/%s/%s", os.Getenv("S3_ENDPOINT"), os.Getenv("S3_BUCKET"), key)
-	product.ImageURL = imageURL
-	h.DB.Save(&product)
+	h.DB.Model(&product).Update("image_url", imageURL)
 
-	c.JSON(http.StatusOK, product)
+	c.JSON(http.StatusOK, gin.H{"message": "Изображение загружено", "image_url": imageURL})
 }
