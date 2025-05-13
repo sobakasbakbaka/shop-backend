@@ -145,7 +145,7 @@ func (h *ProductHandler) UploadProductImage(c *gin.Context) {
 	})
 	if err != nil {
 		log.Println("S3 error:", err)
-		c.JSON(500, gin.H{"error": "Ошибка загрузки в S3"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка загрузки в S3"})
 	return
 }
 
@@ -153,5 +153,5 @@ func (h *ProductHandler) UploadProductImage(c *gin.Context) {
 	product.ImageURL = imageURL
 	h.DB.Save(&product)
 
-	c.JSON(200, product)
+	c.JSON(http.StatusOK, product)
 }
