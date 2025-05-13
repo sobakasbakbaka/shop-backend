@@ -24,6 +24,7 @@ func main() {
 	productHandler := handlers.NewProductHandler(database)
 
 	r.GET("/products", productHandler.GetProducts)
+	r.POST("/products", productHandler.CreateProduct)
 
 	r.Run(":" + cfg.ServerPort)
 }
