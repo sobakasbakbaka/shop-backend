@@ -28,6 +28,9 @@ func main() {
 
 	r.GET("/products", productHandler.GetProducts)
 	r.POST("/products", productHandler.CreateProduct)
+	r.GET("/products/:id", productHandler.GetProductByID)
+	r.PUT("/products/:id", productHandler.UpdateProduct)
+	r.DELETE("/products/:id", productHandler.DeleteProduct)
 
 	err = r.Run(":" + cfg.ServerPort)
 	if err != nil {

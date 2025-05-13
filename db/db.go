@@ -13,7 +13,6 @@ func Connect(cfg config.Config) (*gorm.DB, error) {
 		cfg.DBHost, cfg.DBUser, cfg.DBPassword, cfg.DBName, cfg.DBPort)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-
 	if err != nil {
 		return nil, err
 	}

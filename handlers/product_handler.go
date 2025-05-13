@@ -18,7 +18,6 @@ func NewProductHandler(db *gorm.DB) *ProductHandler {
 
 func (h *ProductHandler) GetProducts(c *gin.Context) {
 	var products []models.Product
-
 	if err := h.DB.Find(&products).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения продуктов"})
 		return
@@ -28,17 +27,69 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 }
 
 func (h *ProductHandler) CreateProduct(c *gin.Context) {
-	var p models.Product
-
-	if err := c.ShouldBindJSON(&p); err != nil {
+	var product models.Product
+	if err := c.ShouldBindJSON(&product); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Невалидный JSON"})
 		return
 	}
 
-	if err := h.DB.Create(&p).Error; err != nil {
+	if err := h.DB.Create(&product).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания продукта"})
 		return
 	}
 	
-	c.JSON(http.StatusCreated, p)
+	c.JSON(http.StatusCreated, product)
+}
+
+func (h *ProductHandler) GetProductByID(c *gin.Context) {
+	id := c.Param("id")
+	var product models.Product
+	if err := h.DB.First(&product, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Продукт не найден"})
+		return
+	}
+
+	c.JSON(http.StatusOK, product)
+}
+
+func (h *ProductHandler) UpdateProduct(c *gin.Context) {
+	id := c.Param("id")
+	var product models.Product
+	if err := h.DB.First(&product, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Продукт не найден"})
+		return
+	}
+
+	var input models.Product
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Невалидный JSON"})
+		return
+	}
+
+	product.Name = input.Name
+	product.Price = input.Price
+
+	if err := h.DB.Save(&product).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обновления продукта"})
+		return
+	}
+
+	c.JSON(http.StatusOK, product)
+}
+
+func (h *ProductHandler) DeleteProduct(c *gin.Context) {
+	id := c.Param("id")
+	var product models.Product
+
+	if err := h.DB.First(&product, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Продукт не найден"})
+		return
+	}
+
+	if err := h.DB.Delete(&product).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка удаления продукта"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Продукт удален"})
 }
