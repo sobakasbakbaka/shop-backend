@@ -30,6 +30,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	var existing models.User
+	if err := h.DB.Where("email = ?", input.Email).First(&existing).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Пользователь с таким email уже существует"})
+		return
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка хеширования пароля"})
