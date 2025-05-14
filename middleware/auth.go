@@ -44,6 +44,11 @@ func AuthRequired() gin.HandlerFunc {
 		}
 
 		c.Set("user_id", claims["user_id"])
+
+		if role, ok := claims["role"].(string); ok {
+			c.Set("user_role", role)
+		} 
+
 		c.Next()
 	}
 }

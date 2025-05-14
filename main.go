@@ -20,34 +20,55 @@ func main() {
 		log.Fatal("Ошибка подключения к БД", err)
 	}
 
-	err = database.AutoMigrate(&models.Product{}, &models.User{})
+	err = database.AutoMigrate(&models.Product{}, &models.User{}, &models.Order{})
 	if err != nil {
 		log.Fatal("Ошибка миграции БД", err)
 	}
 	
 	r := gin.Default()
+
 	productHandler := handlers.NewProductHandler(database)
 	authHandler := handlers.NewAuthHandler(database)
+	orderHandler := handlers.NewOrderHandler(database)
 
 	r.POST("/register", authHandler.Register)
 	r.POST("/login", authHandler.Login)
+	
+	auth := r.Group("/")
+	auth.Use(middleware.AuthRequired())
 
-	r.GET("/me", middleware.AuthRequired(), func(c *gin.Context) {
+	auth.GET("/me", func(c *gin.Context) {
 		userID, _ := c.Get("user_id")
 		var user models.User
+
 		if err := database.First(&user, userID).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось получить данные пользователя"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"email": user.Email, "created_at": user.CreatedAt})
+
+		c.JSON(http.StatusOK, gin.H{
+			"email": user.Email,
+			"created_at": user.CreatedAt,
+			"role": user.Role,
+		})
 	})
 
 	r.GET("/products", productHandler.GetProducts)
-	r.POST("/products", productHandler.CreateProduct)
 	r.GET("/products/:id", productHandler.GetProductByID)
-	r.PUT("/products/:id", productHandler.UpdateProduct)
-	r.DELETE("/products/:id", productHandler.DeleteProduct)
-	r.POST("/products/:id/image", productHandler.UploadProductImage)
+
+	auth.POST("/products/:id/image", productHandler.UploadProductImage)
+
+	admin := auth.Group("/")
+	admin.Use(middleware.AdminOnly())
+
+	admin.POST("/products", productHandler.CreateProduct)
+	admin.PUT("/products/:id", productHandler.UpdateProduct)
+	admin.DELETE("/products/:id", productHandler.DeleteProduct)
+	
+	
+	auth.POST("/orders", orderHandler.CreateOrder)
+	// auth.GET("/orders/mine", orderHandler.GetMyOrders)
+	// admin.GET("/orders", orderHandler.GetAllOrders)
 
 	err = r.Run(":" + cfg.ServerPort)
 	if err != nil {
