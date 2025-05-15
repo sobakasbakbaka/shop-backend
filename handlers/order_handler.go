@@ -23,7 +23,12 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	userID := userIDInterface.(uint)
+	userIDFloat, ok := userIDInterface.(float64)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Невалидный тип user_id"})
+		return
+	}
+	userID := uint(userIDFloat)
 
 	var input struct {
 		Total float64 `json:"total"`
