@@ -68,7 +68,7 @@ func main() {
 	
 	auth.POST("/orders", orderHandler.CreateOrder)
 	auth.GET("/orders/mine", orderHandler.GetMyOrders)
-	// admin.GET("/orders", orderHandler.GetAllOrders)
+	admin.GET("/orders", orderHandler.GetAllOrders)
 
 	err = r.Run(":" + cfg.ServerPort)
 	if err != nil {

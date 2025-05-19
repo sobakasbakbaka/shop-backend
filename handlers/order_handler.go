@@ -77,4 +77,12 @@ func (h *OrderHandler) GetMyOrders(c *gin.Context) {
 	c.JSON(http.StatusOK, orders)
 }
 
-// func (h *OrderHandler) GetAllOrders(c *gin.Context) {}
+func (h *OrderHandler) GetAllOrders(c *gin.Context) {
+	var orders []models.Order
+	if err := h.DB.Preload("Products").Find(&orders).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения заказов"})
+		return
+	}
+
+	c.JSON(http.StatusOK, orders)
+}
