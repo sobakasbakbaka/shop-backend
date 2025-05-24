@@ -87,5 +87,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Авторизация успешна", "token": tokenString})
+	c.SetCookie(
+		"token",
+		tokenString,
+		3600*24*3,
+		"/",
+		"localhost",
+		false, //HTTP true if https
+		true, //HTTPOnly
+	)
+
+	c.JSON(http.StatusOK, gin.H{"message": "Авторизация успешна"})
+}
+
+func (h *AuthHandler) Logout(c *gin.Context) {
+	c.SetCookie("token", "", -1, "/", "localhost", false, true)
 }
