@@ -92,7 +92,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		tokenString,
 		3600*24*3,
 		"/",
-		"localhost",
+		os.Getenv("CLIENT_ADRESS"),
 		false, //HTTP true if https
 		true, //HTTPOnly
 	)
