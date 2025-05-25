@@ -25,6 +25,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	var input struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		UserName string `json:"user_name"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Невалидный JSON"})
@@ -50,6 +51,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	user := models.User{
 		Email:        input.Email,
 		PasswordHash: string(hash),
+		UserName: input.UserName,
 	}
 
 	if err := h.DB.Create(&user).Error; err != nil {

@@ -60,6 +60,7 @@ func main() {
 			"email": user.Email,
 			"created_at": user.CreatedAt,
 			"role": user.Role,
+			"user_name": user.UserName,
 		})
 	})
 
