@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"gobackend/models"
 	"net/http"
 	"os"
@@ -31,8 +32,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	var existing models.User
-	if err := h.DB.Where("email = ?", input.Email).First(&existing).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Пользователь с таким email уже существует"})
+	err := h.DB.Where("email = ?", input.Email).First(&existing).Error
+	if err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Пользователь с таким email уже существует"})
+		return
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при проверке пользователя"})
 		return
 	}
 
@@ -52,7 +57,21 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Пользователь успешно зарегистрирован"})
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": user.ID,
+		"role":    user.Role,
+		"exp":     time.Now().Add(72 * time.Hour).Unix(),
+	})
+
+	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания токена"})
+		return
+	}
+
+	c.SetCookie("token", tokenString, 3600*24*3, "/", "", false, true)
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Пользователь зарегистрирован и авторизован"})
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
