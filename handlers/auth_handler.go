@@ -122,5 +122,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	c.SetCookie("token", "", -1, "/", "localhost", false, true)
+	c.SetCookie(
+		"token",
+		"", 
+		-1, 
+		"/", 
+		os.Getenv("CLIENT_ADRESS"), 
+		false,
+		true,
+	)
 }
