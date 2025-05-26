@@ -26,6 +26,7 @@ func main() {
 		&models.User{}, 
 		&models.Order{},
 		&models.CartItem{},
+		&models.OrderItem{},
 	)
 	if err != nil {
 		log.Fatal("Ошибка миграции БД", err)
@@ -82,8 +83,6 @@ func main() {
 	admin.PUT("/products/:id", productHandler.UpdateProduct)
 	admin.DELETE("/products/:id", productHandler.DeleteProduct)
 	
-	
-	auth.POST("/orders", orderHandler.CreateOrder)
 	auth.GET("/orders/mine", orderHandler.GetMyOrders)
 	admin.GET("/orders", orderHandler.GetAllOrders)
 
