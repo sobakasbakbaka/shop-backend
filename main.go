@@ -93,6 +93,8 @@ func main() {
 		cart.GET("/", cartHandler.GetCart)
 		cart.DELETE("/:product_id", cartHandler.RemoveFromCart)
 		cart.DELETE("/", cartHandler.ClearCart)
+		cart.PUT("/:product_id", cartHandler.UpdateQuantity)
+		cart.POST("/checkout", cartHandler.Checkout)
 	}
 
 	err = r.Run(":" + cfg.ServerPort)
