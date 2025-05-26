@@ -21,7 +21,12 @@ func main() {
 		log.Fatal("Ошибка подключения к БД", err)
 	}
 
-	err = database.AutoMigrate(&models.Product{}, &models.User{}, &models.Order{})
+	err = database.AutoMigrate(
+		&models.Product{}, 
+		&models.User{}, 
+		&models.Order{},
+		&models.CartItem{},
+	)
 	if err != nil {
 		log.Fatal("Ошибка миграции БД", err)
 	}
@@ -39,6 +44,7 @@ func main() {
 	productHandler := handlers.NewProductHandler(database)
 	authHandler := handlers.NewAuthHandler(database)
 	orderHandler := handlers.NewOrderHandler(database)
+	cartHandler := handlers.NewCartHandler(database)
 
 	r.POST("/register", authHandler.Register)
 	r.POST("/login", authHandler.Login)
@@ -80,6 +86,14 @@ func main() {
 	auth.POST("/orders", orderHandler.CreateOrder)
 	auth.GET("/orders/mine", orderHandler.GetMyOrders)
 	admin.GET("/orders", orderHandler.GetAllOrders)
+
+	cart := r.Group("/cart", middleware.AuthRequired())
+	{
+		cart.POST("/add", cartHandler.AddToCart)
+		cart.GET("/", cartHandler.GetCart)
+		cart.DELETE("/:product_id", cartHandler.RemoveFromCart)
+		cart.DELETE("/", cartHandler.ClearCart)
+	}
 
 	err = r.Run(":" + cfg.ServerPort)
 	if err != nil {
