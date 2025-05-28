@@ -86,9 +86,20 @@ func (h *CartHandler) GetCart(c *gin.Context) {
 	}
 
 	var items []models.CartItem
-	h.DB.Preload("Product").Where("user_id = ?", userID).Find(&items)
+	if err := h.DB.Preload("Product").Where("user_id = ?", userID).Find(&items).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения корзины"})
+		return
+	}
 
-	c.JSON(http.StatusOK, items)
+	var total float64
+	for _, item := range items {
+		total += float64(item.Quantity) * item.Product.Price
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items": items,
+		"total": total,
+	})
 }
 
 func (h *CartHandler) RemoveFromCart(c *gin.Context) {
