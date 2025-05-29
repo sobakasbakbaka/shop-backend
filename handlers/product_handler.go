@@ -1,17 +1,20 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"gobackend/models"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -106,6 +109,7 @@ func (h *ProductHandler) DeleteProduct(c *gin.Context) {
 
 func (h *ProductHandler) UploadProductImage(c *gin.Context) {
 	id := c.Param("id")
+
 	var product models.Product
 	if err := h.DB.First(&product, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Товар не найден"})
@@ -131,39 +135,57 @@ func (h *ProductHandler) UploadProductImage(c *gin.Context) {
 	}
 	defer file.Close()
 
-	sess, err := session.NewSession(&aws.Config{
-		Region:           aws.String(os.Getenv("S3_REGION")),
-		Endpoint:         aws.String(os.Getenv("S3_ENDPOINT")),
-		S3ForcePathStyle: aws.Bool(true),
-		Credentials: credentials.NewStaticCredentials(
-			os.Getenv("S3_ACCESS_KEY"),
-			os.Getenv("S3_SECRET_KEY"),
-			"",
-		),
-	})
-	if err != nil {
-		log.Println("S3 init error:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка инициализации S3"})
+	buf := new(bytes.Buffer)
+	if _, err := io.Copy(buf, file); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка чтения файла"})
 		return
 	}
 
-	s3Client := s3.New(sess)
-	key := fmt.Sprintf("products/%s/main.jpg", id)
+	r2Endpoint := os.Getenv("S3_ENDPOINT")
+	r2Bucket := os.Getenv("S3_BUCKET")
+	accessKey := os.Getenv("S3_ACCESS_KEY")
+	secretKey := os.Getenv("S3_SECRET_KEY")
+	publicDomain := os.Getenv("S3_PUBLIC_DOMAIN")
 
-	_, err = s3Client.PutObject(&s3.PutObjectInput{
-		Bucket:      aws.String(os.Getenv("S3_BUCKET")),
+	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+		return aws.Endpoint{
+			URL:               r2Endpoint,
+			HostnameImmutable: true,
+		}, nil
+	})
+
+	cfg, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithRegion(os.Getenv("AWS_REGION")),
+		config.WithEndpointResolverWithOptions(customResolver),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
+	)
+	if err != nil {
+		log.Println("Ошибка конфигурации R2:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка инициализации хранилища"})
+		return
+	}
+
+	client := s3.NewFromConfig(cfg)
+	key := fmt.Sprintf("%s/main.jpg", id)
+
+	_, err = client.PutObject(context.TODO(), &s3.PutObjectInput{
+		Bucket:      aws.String(r2Bucket),
 		Key:         aws.String(key),
-		Body:        file,
+		Body:        bytes.NewReader(buf.Bytes()),
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
-		log.Println("S3 error:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка загрузки в S3"})
+		log.Println("Ошибка загрузки в R2:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка загрузки изображения"})
 		return
 	}
 
-	imageURL := fmt.Sprintf("%s/%s/%s", os.Getenv("S3_ENDPOINT"), os.Getenv("S3_BUCKET"), key)
+	imageURL := fmt.Sprintf("%s/%s", publicDomain, key)
+
 	h.DB.Model(&product).Update("image_url", imageURL)
 
-	c.JSON(http.StatusOK, gin.H{"message": "Изображение загружено", "image_url": imageURL})
+	c.JSON(http.StatusOK, gin.H{
+		"message":   "Изображение загружено",
+		"image_url": imageURL,
+	})
 }
