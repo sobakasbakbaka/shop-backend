@@ -77,6 +77,7 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 	product.Name = input.Name
 	product.Price = input.Price
 	product.Stock = input.Stock
+	product.Description = input.Description
 
 	if err := h.DB.Save(&product).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обновления продукта"})
