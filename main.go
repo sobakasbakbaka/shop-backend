@@ -93,7 +93,7 @@ func main() {
 		cart.DELETE("/:product_id", cartHandler.RemoveFromCart)
 		cart.DELETE("/", cartHandler.ClearCart)
 		cart.PUT("/:product_id", cartHandler.UpdateQuantity)
-		cart.POST("/checkout", cartHandler.Checkout)
+		cart.POST("/webhook/stripe", cartHandler.HandleStripeWebhook)
 	}
 
 	err = r.Run(":" + cfg.ServerPort)
