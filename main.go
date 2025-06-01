@@ -96,6 +96,7 @@ func main() {
 	}
 	r.POST("/webhook/stripe", cartHandler.HandleStripeWebhook)
 	auth.POST("/create-checkout-session", cartHandler.CreateCheckoutSession)
+	auth.GET("/get-order-by-session", orderHandler.GetOrderBySession)
 
 
 	err = r.Run(":" + cfg.ServerPort)

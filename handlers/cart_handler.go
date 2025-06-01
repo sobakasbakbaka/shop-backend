@@ -183,7 +183,7 @@ func (h *CartHandler) HandleStripeWebhook(c *gin.Context) {
 		return
 	}
 
-	// Проверка: отключена ли проверка подписи (например, для Insomnia)
+	// Для отладки без проверки подписи (например, в Insomnia/Postman)
 	if os.Getenv("DISABLE_STRIPE_SIGNATURE_CHECK") == "true" {
 		var event stripe.Event
 		if err := json.Unmarshal(payload, &event); err != nil {
@@ -194,7 +194,7 @@ func (h *CartHandler) HandleStripeWebhook(c *gin.Context) {
 		h.handleEvent(c, event)
 		return
 	}
-	
+
 	endpointSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
 	sigHeader := c.GetHeader("Stripe-Signature")
 
@@ -221,6 +221,16 @@ func (h *CartHandler) handleEvent(c *gin.Context, event stripe.Event) {
 			return
 		}
 
+		log.Printf("Stripe session ID: %s", session.ID)
+		log.Printf("ClientReferenceID: %s", session.ClientReferenceID)
+		log.Printf("PaymentStatus: %s", session.PaymentStatus)
+
+		if session.PaymentStatus != stripe.CheckoutSessionPaymentStatusPaid {
+			log.Println("Оплата не завершена, заказ не создается")
+			c.Status(http.StatusOK)
+			return
+		}
+
 		uid64, err := strconv.ParseUint(session.ClientReferenceID, 10, 64)
 		if err != nil {
 			log.Println("Invalid user ID в session.ClientReferenceID:", session.ClientReferenceID)
@@ -228,6 +238,8 @@ func (h *CartHandler) handleEvent(c *gin.Context, event stripe.Event) {
 			return
 		}
 		userID := uint(uid64)
+
+		log.Printf("Создание заказа для user_id=%d\n", userID)
 
 		err = h.DB.Transaction(func(tx *gorm.DB) error {
 			return CreateOrderFromCart(tx, userID)
@@ -237,6 +249,8 @@ func (h *CartHandler) handleEvent(c *gin.Context, event stripe.Event) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания заказа"})
 			return
 		}
+
+		log.Println("✅ Заказ успешно создан")
 	}
 
 	c.Status(http.StatusOK)
@@ -296,84 +310,85 @@ func CreateOrderFromCart(tx *gorm.DB, userID uint) error {
 }
 
 func (h *CartHandler) CreateCheckoutSession(c *gin.Context) {
-    tokenString, err := c.Cookie("token")
-    if err != nil {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Session token not found"})
-        return
-    }
+	tokenString, err := c.Cookie("token")
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Session token not found"})
+		return
+	}
 
-    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-        return []byte(os.Getenv("JWT_SECRET")), nil
-    })
-    if err != nil || !token.Valid {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid session token"})
-        return
-    }
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		return []byte(os.Getenv("JWT_SECRET")), nil
+	})
+	if err != nil || !token.Valid {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid session token"})
+		return
+	}
 
-    claims, ok := token.Claims.(jwt.MapClaims)
-    if !ok || claims["user_id"] == nil {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
-        return
-    }
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["user_id"] == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+		return
+	}
 
-    userIDFloat, ok := claims["user_id"].(float64)
-    if !ok {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user_id in token"})
-        return
-    }
-    userID := uint(userIDFloat)
+	userIDFloat, ok := claims["user_id"].(float64)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user_id in token"})
+		return
+	}
+	userID := uint(userIDFloat)
 
-    var cartItems []models.CartItem
-    if err := h.DB.Preload("Product").Where("user_id = ?", userID).Find(&cartItems).Error; err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении корзины"})
-        return
-    }
+	var cartItems []models.CartItem
+	if err := h.DB.Preload("Product").Where("user_id = ?", userID).Find(&cartItems).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении корзины"})
+		return
+	}
 
-    if len(cartItems) == 0 {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Корзина пуста"})
-        return
-    }
+	if len(cartItems) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Корзина пуста"})
+		return
+	}
 
-    stripe.Key = os.Getenv("STRIPE_SECRET_KEY")
-    if stripe.Key == "" {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Stripe secret key is not configured"})
-        return
-    }
+	stripe.Key = os.Getenv("STRIPE_SECRET_KEY")
+	if stripe.Key == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Stripe secret key is not configured"})
+		return
+	}
 
-    var lineItems []*stripe.CheckoutSessionLineItemParams
-    for _, item := range cartItems {
-        priceCents := int64(item.Product.Price * 100)
-        if priceCents <= 0 {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректная цена в корзине"})
-            return
-        }
-        lineItems = append(lineItems, &stripe.CheckoutSessionLineItemParams{
-            PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
-                Currency: stripe.String("usd"),
-                ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
-                    Name: stripe.String(item.Product.Name),
-                },
-                UnitAmount: stripe.Int64(priceCents),
-            },
-            Quantity: stripe.Int64(int64(item.Quantity)),
-        })
-    }
+	var lineItems []*stripe.CheckoutSessionLineItemParams
+	for _, item := range cartItems {
+		priceCents := int64(item.Product.Price * 100)
+		if priceCents <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректная цена в корзине"})
+			return
+		}
+		lineItems = append(lineItems, &stripe.CheckoutSessionLineItemParams{
+			PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
+				Currency: stripe.String("usd"),
+				ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
+					Name: stripe.String(item.Product.Name),
+				},
+				UnitAmount: stripe.Int64(priceCents),
+			},
+			Quantity: stripe.Int64(int64(item.Quantity)),
+		})
+	}
 
-    params := &stripe.CheckoutSessionParams{
-        PaymentMethodTypes: stripe.StringSlice([]string{"card"}),
-        LineItems:          lineItems,
-        Mode:               stripe.String(string(stripe.CheckoutSessionModePayment)),
-        SuccessURL:         stripe.String("http://localhost:3000/success"),
-        CancelURL:          stripe.String("http://localhost:3000/cancel"),
-        ClientReferenceID:  stripe.String(strconv.Itoa(int(userID))),
-    }
+	params := &stripe.CheckoutSessionParams{
+		PaymentMethodTypes: stripe.StringSlice([]string{"card"}),
+		LineItems:          lineItems,
+		Mode:               stripe.String(string(stripe.CheckoutSessionModePayment)),
+		SuccessURL: stripe.String("http://localhost:3000/order?session_id={CHECKOUT_SESSION_ID}"),
+		CancelURL:  stripe.String("http://localhost:3000/cart"),
 
-    session, err := checkoutsession.New(params)
-    if err != nil {
-        log.Printf("Ошибка создания сессии Stripe: %v\n", err)
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка Stripe при создании сессии"})
-        return
-    }
+		ClientReferenceID: stripe.String(strconv.Itoa(int(userID))),
+	}
 
-    c.JSON(http.StatusOK, gin.H{"sessionId": session.ID})
+	session, err := checkoutsession.New(params)
+	if err != nil {
+		log.Printf("Ошибка создания сессии Stripe: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка Stripe при создании сессии"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"sessionId": session.ID})
 }

@@ -3,8 +3,10 @@ package handlers
 import (
 	"gobackend/models"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
+	checkoutsession "github.com/stripe/stripe-go/v78/checkout/session"
 	"gorm.io/gorm"
 )
 
@@ -50,4 +52,32 @@ func (h *OrderHandler) GetAllOrders(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, orders)
+}
+
+func (h *OrderHandler) GetOrderBySession(c *gin.Context) {
+    sessionID := c.Query("session_id")
+    if sessionID == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "session_id is required"})
+        return
+    }
+
+    session, err := checkoutsession.Get(sessionID, nil)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения сессии Stripe"})
+        return
+    }
+
+    uid64, err := strconv.ParseUint(session.ClientReferenceID, 10, 64)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ClientReferenceID"})
+        return
+    }
+
+    var order models.Order
+    if err := h.DB.Preload("Items.Product").Where("user_id = ?", uint(uid64)).Order("created_at DESC").First(&order).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+        return
+    }
+
+    c.JSON(http.StatusOK, order)
 }
