@@ -176,43 +176,66 @@ func (h *CartHandler) HandleStripeWebhook(c *gin.Context) {
 
 	payload, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		log.Println("Ошибка чтения тела запроса:", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Ошибка чтения тела запроса"})
 		return
 	}
 
+	// Проверка: отключена ли проверка подписи (например, для Insomnia)
+	if os.Getenv("DISABLE_STRIPE_SIGNATURE_CHECK") == "true" {
+		var event stripe.Event
+		if err := json.Unmarshal(payload, &event); err != nil {
+			log.Println("Ошибка парсинга события Stripe:", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Ошибка парсинга события"})
+			return
+		}
+		h.handleEvent(c, event)
+		return
+	}
+	
 	endpointSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
 	sigHeader := c.GetHeader("Stripe-Signature")
 
-	event, err := webhook.ConstructEvent(payload, sigHeader, endpointSecret)
+	event, err := webhook.ConstructEventWithOptions(payload, sigHeader, endpointSecret, webhook.ConstructEventOptions{
+		IgnoreAPIVersionMismatch: true,
+	})
 	if err != nil {
+		log.Println("Ошибка проверки подписи Stripe:", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ошибка проверки подписи Stripe"})
 		return
 	}
 
-	if event.Type == "checkout.session.completed" {
-    var session stripe.CheckoutSession
-    if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Ошибка парсинга session"})
-        return
-    }
-
-    uid64, err := strconv.ParseUint(session.ClientReferenceID, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
-		return
-	}
-	userID := uint(uid64)
-
-    err = h.DB.Transaction(func(tx *gorm.DB) error {
-        return CreateOrderFromCart(tx, userID)
-    })
-
-    if err != nil {
-        log.Println("Ошибка создания заказа:", err)
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания заказа"})
-        return
-    }
+	h.handleEvent(c, event)
 }
+
+func (h *CartHandler) handleEvent(c *gin.Context, event stripe.Event) {
+	log.Printf("Получено событие от Stripe: %s", event.Type)
+
+	if event.Type == "checkout.session.completed" {
+		var session stripe.CheckoutSession
+		if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
+			log.Println("Ошибка парсинга session:", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Ошибка парсинга session"})
+			return
+		}
+
+		uid64, err := strconv.ParseUint(session.ClientReferenceID, 10, 64)
+		if err != nil {
+			log.Println("Invalid user ID в session.ClientReferenceID:", session.ClientReferenceID)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			return
+		}
+		userID := uint(uid64)
+
+		err = h.DB.Transaction(func(tx *gorm.DB) error {
+			return CreateOrderFromCart(tx, userID)
+		})
+		if err != nil {
+			log.Println("Ошибка создания заказа из webhook:", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания заказа"})
+			return
+		}
+	}
 
 	c.Status(http.StatusOK)
 }
