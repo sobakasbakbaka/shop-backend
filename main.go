@@ -95,6 +95,7 @@ func main() {
 		cart.PUT("/:product_id", cartHandler.UpdateQuantity)
 	}
 	r.POST("/webhook/stripe", cartHandler.HandleStripeWebhook)
+	auth.POST("/create-checkout-session", cartHandler.CreateCheckoutSession)
 
 
 	err = r.Run(":" + cfg.ServerPort)
