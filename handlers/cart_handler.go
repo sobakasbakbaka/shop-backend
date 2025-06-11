@@ -183,7 +183,7 @@ func (h *CartHandler) HandleStripeWebhook(c *gin.Context) {
 		return
 	}
 
-	// Для отладки без проверки подписи (например, в Insomnia/Postman)
+	//TODO: Для отладки без проверки подписи (например, в Insomnia/Postman)
 	if os.Getenv("DISABLE_STRIPE_SIGNATURE_CHECK") == "true" {
 		var event stripe.Event
 		if err := json.Unmarshal(payload, &event); err != nil {
@@ -242,7 +242,7 @@ func (h *CartHandler) handleEvent(c *gin.Context, event stripe.Event) {
 		log.Printf("Создание заказа для user_id=%d\n", userID)
 
 		err = h.DB.Transaction(func(tx *gorm.DB) error {
-			return CreateOrderFromCart(tx, userID)
+			return CreateOrderFromCart(tx, userID, session.Metadata)
 		})
 		if err != nil {
 			log.Println("Ошибка создания заказа из webhook:", err)
@@ -250,13 +250,13 @@ func (h *CartHandler) handleEvent(c *gin.Context, event stripe.Event) {
 			return
 		}
 
-		log.Println("✅ Заказ успешно создан")
+		log.Println("Заказ успешно создан")
 	}
 
 	c.Status(http.StatusOK)
 }
 
-func CreateOrderFromCart(tx *gorm.DB, userID uint) error {
+func CreateOrderFromCart(tx *gorm.DB, userID uint, metadata map[string]string) error {
 	var cartItems []models.CartItem
 	if err := tx.Preload("Product").Where("user_id = ?", userID).Find(&cartItems).Error; err != nil {
 		return err
@@ -293,9 +293,14 @@ func CreateOrderFromCart(tx *gorm.DB, userID uint) error {
 	}
 
 	order := models.Order{
-		UserID: userID,
-		Total:  total,
-		Items:  orderItems,
+		UserID:    userID,
+		FirstName: metadata["first_name"],
+		LastName:  metadata["last_name"],
+		Street:   metadata["street"],
+		City:      metadata["city"],
+		Phone: 		metadata["phone"],
+		Items:     orderItems,
+		Total:     total,
 	}
 
 	if err := tx.Create(&order).Error; err != nil {
@@ -337,6 +342,12 @@ func (h *CartHandler) CreateCheckoutSession(c *gin.Context) {
 	}
 	userID := uint(userIDFloat)
 
+	var input models.Checkout
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ввод"})
+		return
+	}
+
 	var cartItems []models.CartItem
 	if err := h.DB.Preload("Product").Where("user_id = ?", userID).Find(&cartItems).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении корзины"})
@@ -377,10 +388,16 @@ func (h *CartHandler) CreateCheckoutSession(c *gin.Context) {
 		PaymentMethodTypes: stripe.StringSlice([]string{"card"}),
 		LineItems:          lineItems,
 		Mode:               stripe.String(string(stripe.CheckoutSessionModePayment)),
-		SuccessURL: stripe.String("http://localhost:3000/order?session_id={CHECKOUT_SESSION_ID}"),
-		CancelURL:  stripe.String("http://localhost:3000/cart"),
-
-		ClientReferenceID: stripe.String(strconv.Itoa(int(userID))),
+		SuccessURL:         stripe.String("http://localhost:3000/order?session_id={CHECKOUT_SESSION_ID}"),
+		CancelURL:          stripe.String("http://localhost:3000/cart"),
+		ClientReferenceID:  stripe.String(strconv.Itoa(int(userID))),
+		Metadata: map[string]string{
+			"first_name": input.FirstName,
+			"last_name":  input.LastName,
+			"city":       input.City,
+			"street":    input.Street,
+			"phone": input.Phone,
+		},
 	}
 
 	session, err := checkoutsession.New(params)
